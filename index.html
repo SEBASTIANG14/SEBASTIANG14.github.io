@@ -1,0 +1,561 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Space Invaders</title>
+    <style>
+      body {
+        background-color: #000128;
+      }
+      canvas {
+        background-color: antiquewhite;
+        padding-left: 0;
+        padding-right: 0;
+        margin-left: auto;
+        margin-right: auto;
+        margin-top: 20px;
+        display: block;
+      }
+    </style>
+  </head>
+  <body>
+    <canvas id="my_canvas" width="1000" height="700"></canvas>
+    <div
+      id="instructions"
+      style="
+        position: absolute;
+        bottom: 20px;
+        right: 20px;
+        color: white;
+        font-family: Arial;
+        font-size: 12px;
+      "
+    >
+      <h2>Cómo Jugar</h2>
+      <p><strong>Movimientos:</strong></p>
+      <p>A: Mover a la izquierda</p>
+      <p>D: Mover a la derecha</p>
+      <p><strong>Disparos:</strong></p>
+      <p>Espacio: Disparar</p>
+      <p><strong>Objetivo:</strong></p>
+      <p>Elimina a todos los enemigos para ganar.</p>
+    </div>
+
+    <script>
+      const my_Canvas = document.getElementById("my_canvas");
+      const ctx = my_Canvas.getContext("2d");
+
+      class Player {
+        constructor() {
+          this.velocity = {
+            x: 0,
+            y: 0,
+          };
+
+          this.opacity = 1;
+          this.image = new Image();
+          this.image.src = "HalconMillenario.png";
+          this.image.onload = () => {
+            const scale = 0.15;
+            this.width = this.image.width * scale;
+            this.height = this.image.height * scale;
+            this.position = {
+              x: my_Canvas.width / 2 - this.width / 2,
+              y: my_Canvas.height - this.height,
+            };
+            this.loaded = true;
+            this.draw();
+          };
+        }
+
+        draw() {
+          ctx.save();
+          ctx.globalAlpha = this.opacity;
+          ctx.drawImage(
+            this.image,
+            this.position.x,
+            this.position.y,
+            this.width,
+            this.height
+          );
+          ctx.restore();
+        }
+        update() {
+          if (this.loaded) {
+            this.draw();
+            this.position.x += this.velocity.x;
+          }
+        }
+      }
+
+      class Projectile {
+        constructor({ position, velocity }) {
+          this.position = position;
+          this.velocity = velocity;
+          this.radius = 4;
+        }
+        draw() {
+          ctx.beginPath();
+          ctx.arc(
+            this.position.x,
+            this.position.y,
+            this.radius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fillStyle = "red";
+          ctx.fill();
+          ctx.closePath();
+        }
+        update() {
+          this.draw();
+          this.position.x += this.velocity.x;
+          this.position.y += this.velocity.y;
+        }
+      }
+
+      class EnemyProjectile {
+        constructor({ position, velocity }) {
+          this.position = position;
+          this.velocity = velocity;
+
+          this.width = 4;
+          this.height = 18;
+        }
+        draw() {
+          ctx.fillStyle = "#23ff00";
+          ctx.fillRect(
+            this.position.x,
+            this.position.y,
+            this.width,
+            this.height
+          );
+        }
+        update() {
+          this.draw();
+          this.position.x += this.velocity.x;
+          this.position.y += this.velocity.y;
+        }
+      }
+
+      class Impacto {
+        constructor({ position, velocity, radius, color }) {
+          this.position = position;
+          this.velocity = velocity;
+          this.radius = radius;
+          this.color = color;
+          this.opacity = 1;
+        }
+        draw() {
+          ctx.save();
+          ctx.globalAlpha = this.opacity;
+          ctx.beginPath();
+          ctx.arc(
+            this.position.x,
+            this.position.y,
+            this.radius,
+            0,
+            Math.PI * 2
+          );
+          ctx.fillStyle = this.color;
+          ctx.fill();
+          ctx.closePath();
+          ctx.restore();
+        }
+        update() {
+          this.draw();
+          this.position.x += this.velocity.x;
+          this.position.y += this.velocity.y;
+
+          this.opacity -= 0.01;
+        }
+      }
+
+      class Tiefighter {
+        constructor({ position }) {
+          this.velocity = {
+            x: 0,
+            y: 0,
+          };
+          this.image = new Image();
+          this.image.src = "TieFighter.png";
+          this.image.onload = () => {
+            const scale = 0.07;
+            this.width = this.image.width * scale;
+            this.height = this.image.height * scale;
+            this.position = {
+              x: position.x,
+              y: position.y,
+            };
+            this.loaded = true;
+            this.draw();
+          };
+        }
+
+        draw() {
+          ctx.drawImage(
+            this.image,
+            this.position.x,
+            this.position.y,
+            this.width,
+            this.height
+          );
+        }
+        update({ velocity }) {
+          if (this.loaded) {
+            this.draw();
+            this.position.x += velocity.x;
+            this.position.y += velocity.y;
+          }
+        }
+        shoot(enemyProjectiles) {
+          enemyProjectiles.push(
+            new EnemyProjectile({
+              position: {
+                x: this.position.x + this.width / 2,
+                y: this.position.y + this.height,
+              },
+              velocity: {
+                x: 0,
+                y: 5,
+              },
+            })
+          );
+        }
+        takeDamage() {
+          this.health--;
+          return this.health <= 0;
+        }
+      }
+      class Grid {
+        constructor(type) {
+          this.position = {
+            x: 0,
+            y: 0,
+          };
+          this.velocity = {
+            x: 3,
+            y: 0,
+          };
+          this.ties = [];
+
+          const columns = 10;
+          const rows = 4;
+          const tieWidth = 50;
+          const tieHeight = 40;
+          const rowSpacing = 10;
+
+          this.width = columns * tieWidth;
+
+          for (let x = 0; x < columns; x++) {
+            for (let y = 0; y < rows; y++) {
+              this.ties.push(
+                new Tiefighter({
+                  position: {
+                    x: x * tieWidth,
+                    y: y * (tieHeight + rowSpacing),
+                  },
+                })
+              );
+            }
+          }
+        }
+
+        update() {
+          this.position.x += this.velocity.x;
+          this.position.y += this.velocity.y;
+
+          this.velocity.y = 0;
+
+          if (
+            this.position.x + this.width >= my_Canvas.width ||
+            this.position.x <= 0
+          ) {
+            this.velocity.x = -this.velocity.x;
+            this.velocity.y = 30;
+          }
+        }
+      }
+
+      const player = new Player();
+      const projectiles = [];
+      const grids = [];
+      const enemyProjectiles = [];
+      const impactos = [];
+      const keys = {
+        a: {
+          pressed: false,
+        },
+        d: {
+          pressed: false,
+        },
+      };
+
+      let frames = 0;
+      let game = {
+        over: false,
+        active: true,
+      };
+      let score = 0;
+      let currentGridIndex = 0;
+      const gridsConfig = [1, 2, 3];
+
+      let backgroundMusic = new sound("sonidoFondo.mp3");
+      let playerShootSound = new sound("NdisparoJugador.mp3");
+      let enemyShootSound = new sound("NdisparonNaveEnemiga.mp3");
+
+      function sound(src) {
+        this.sound = document.createElement("audio");
+        this.sound.src = src;
+        this.sound.setAttribute("preload", "auto");
+        this.sound.setAttribute("controls", "none");
+        this.sound.style.display = "none";
+        document.body.appendChild(this.sound);
+        this.play = function () {
+          this.sound.play();
+        };
+        this.stop = function () {
+          this.sound.pause();
+        };
+      }
+
+      function drawScore() {
+        ctx.font = "20px Arial";
+        ctx.fillStyle = "white";
+        ctx.fillText(`Score: ${score}`, 20, 30);
+      }
+
+      function crearExplosion({ object, color }) {
+        for (let k = 0; k < 15; k++) {
+          impactos.push(
+            new Impacto({
+              position: {
+                x: object.position.x + object.width / 2,
+                y: object.position.y + object.height / 2,
+              },
+              velocity: {
+                x: (Math.random() - 0.5) * 2,
+                y: (Math.random() - 0.5) * 2,
+              },
+              radius: Math.random() * 3,
+              color: color || "green",
+            })
+          );
+        }
+      }
+
+      function mostrarGameOver() {
+        game.active = false;
+        setTimeout(() => {
+          window.location.href = "GameOver.html";
+        }, 0);
+      }
+      function mostrarVictoria() {
+        game.active = false;
+        setTimeout(() => {
+          window.location.href = "GameWin.html";
+        }, 0);
+      }
+
+      const backgroundImage = new Image();
+      backgroundImage.src = "fondoGame.jpg";
+
+      backgroundImage.onload = () => {
+        function animate() {
+          if (!game.active) return;
+          requestAnimationFrame(animate);
+          ctx.drawImage(
+            backgroundImage,
+            0,
+            0,
+            my_Canvas.width,
+            my_Canvas.height
+          );
+          drawScore();
+          backgroundMusic.play();
+          player.update();
+
+          impactos.forEach((impacto, i) => {
+            if (impacto.opacity <= 0) {
+              setTimeout(() => {
+                impactos.splice(i, 1);
+              }, 0);
+            } else {
+              impacto.update();
+            }
+          });
+
+          enemyProjectiles.forEach((enemyProjectile, index) => {
+            if (
+              enemyProjectile.position.y + enemyProjectile.height >=
+              my_canvas.height
+            ) {
+              setTimeout(() => {
+                enemyProjectiles.splice(index, 1);
+              }, 0);
+            } else enemyProjectile.update();
+
+            if (
+              enemyProjectile.position.y + enemyProjectile.height >=
+                player.position.y &&
+              enemyProjectile.position.x + enemyProjectile.width >=
+                player.position.x &&
+              enemyProjectile.position.x <= player.position.x + player.width
+            ) {
+              setTimeout(() => {
+                enemyProjectiles.splice(index, 1);
+                player.opacity = 0;
+                game.over = true;
+              }, 0);
+              setTimeout(() => {
+                game.active = false;
+                mostrarGameOver();
+              }, 2000);
+              crearExplosion({
+                object: player,
+                color: "red",
+              });
+              backgroundMusic.stop();
+            }
+
+            if (score === 1500) {
+              setTimeout(() => {
+                enemyProjectiles.splice(index, 1);
+                player.opacity = 0;
+                game.over = true;
+              }, 0);
+              setTimeout(() => {
+                game.active = false;
+                mostrarVictoria();
+              }, 1000);
+              backgroundMusic.stop();
+            }
+          });
+          projectiles.forEach((projectile, index) => {
+            if (projectile.position.y + projectile.radius < 0) {
+              setTimeout(() => {
+                projectiles.splice(index, 1);
+              }, 0);
+            } else {
+              projectile.update();
+            }
+          });
+
+          grids.forEach((grid, gridIndex) => {
+            grid.update();
+            if (frames % 100 === 0 && grid.ties.length > 0) {
+              grid.ties[Math.floor(Math.random() * grid.ties.length)].shoot(
+                enemyProjectiles
+              );
+              enemyShootSound.play();
+            }
+
+            const tiesToRemove = [];
+            const projectilesToRemove = [];
+
+            grid.ties.forEach((tie, i) => {
+              tie.update({ velocity: grid.velocity });
+
+              projectiles.forEach((projectile, j) => {
+                if (
+                  projectile.position.y - projectile.radius <=
+                    tie.position.y + tie.height &&
+                  projectile.position.x + projectile.radius >= tie.position.x &&
+                  projectile.position.x - projectile.radius <=
+                    tie.position.x + tie.width &&
+                  projectile.position.y + projectile.radius >= tie.position.y
+                ) {
+                  if (
+                    !tiesToRemove.includes(i) &&
+                    !projectilesToRemove.includes(j)
+                  ) {
+                    tiesToRemove.push(i);
+                    projectilesToRemove.push(j);
+
+                    score += 5;
+
+                    crearExplosion({ object: tie });
+                  }
+                }
+              });
+            });
+
+            tiesToRemove.reverse().forEach((index) => {
+              grid.ties.splice(index, 1);
+            });
+
+            projectilesToRemove.reverse().forEach((index) => {
+              projectiles.splice(index, 1);
+            });
+
+            if (grid.ties.length > 0) {
+              const firstTie = grid.ties[0];
+              const lastTie = grid.ties[grid.ties.length - 1];
+              grid.width =
+                lastTie.position.x - firstTie.position.x + lastTie.width;
+              grid.position.x = firstTie.position.x;
+            } else {
+              grids.splice(gridIndex, 1);
+            }
+          });
+          if (keys.a.pressed && player.position.x >= 0) {
+            player.velocity.x = -5;
+          } else if (
+            keys.d.pressed &&
+            player.position.x + player.width <= my_Canvas.width
+          ) {
+            player.velocity.x = 5;
+          } else {
+            player.velocity.x = 0;
+          }
+          console.log(frames);
+          if (frames % 1500 === 0) {
+            grids.push(new Grid());
+          }
+
+          frames++;
+        }
+        animate();
+      };
+
+      window.addEventListener("keydown", ({ key }) => {
+        if (game.over) return;
+        switch (key) {
+          case "a":
+            keys.a.pressed = true;
+            break;
+          case "d":
+            keys.d.pressed = true;
+            break;
+          case " ":
+            projectiles.push(
+              new Projectile({
+                position: {
+                  x: player.position.x + player.width / 2,
+                  y: player.position.y,
+                },
+                velocity: {
+                  x: 0,
+                  y: -5,
+                },
+              })
+            );
+            playerShootSound.play();
+            break;
+        }
+      });
+
+      window.addEventListener("keyup", ({ key }) => {
+        switch (key) {
+          case "a":
+            keys.a.pressed = false;
+            break;
+          case "d":
+            keys.d.pressed = false;
+            break;
+        }
+      });
+    </script>
+  </body>
+</html>
